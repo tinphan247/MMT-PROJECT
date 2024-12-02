@@ -5,7 +5,8 @@ import struct
 
 # Khởi tạo thông tin kết nối
 TCP_IP = "192.168.1.19"  # Server IP (local)
-TCP_PORT = 1456       # Server port
+TCP_PORT = 8080
+       # Server port
 BUFFER_SIZE = 4096    # Kích thước buffer chuẩn
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -20,58 +21,52 @@ def conn():
         sys.exit()
 
 def upld(s, file_name):
-    """Upload a file to the server."""
-    print(f"\nUploading file: {file_name}...")
-
-    # Kiểm tra file có tồn tại không
-    if not os.path.isfile(file_name):
-        print("Couldn't open file. Make sure the file name was entered correctly.")
-        return
-
+    """Upload file lên server"""
     try:
-        # Mở file để đọc
-        with open(file_name, "rb") as content:
-            file_size = os.path.getsize(file_name)
-            print(f"File size (client): {file_size}")
+        # Kiểm tra file tồn tại
+        if not os.path.isfile(file_name):
+            print("File không tồn tại. Kiểm tra đường dẫn.")
+            return
 
-            # Gửi yêu cầu upload
-            s.sendall(b"UPLD")
+        # Lấy kích thước file
+        file_size = os.path.getsize(file_name)
+        print(f"Uploading file: {file_name} (size: {file_size} bytes)")
 
-            # Chờ server phản hồi
-            if not s.recv(1024): 
-                print("No response from server. Aborting.")
-                return
+        # Gửi yêu cầu upload
+        s.sendall(b"UPLD")
 
-            # Gửi tên file
-            file_name_encoded = file_name.encode()
-            s.sendall(struct.pack("h", len(file_name_encoded)))
-            s.sendall(file_name_encoded)
+        # Đợi phản hồi từ server
+        if s.recv(BUFFER_SIZE).decode() != "OK":
+            print("Server không phản hồi. Hủy quá trình.")
+            return
 
-            # Gửi kích thước file
-            s.sendall(struct.pack("i", file_size))
+        # Gửi kích thước tên file và tên file
+        file_name_encoded = file_name.encode()
+        s.sendall(struct.pack("h", len(file_name_encoded)))
+        s.sendall(file_name_encoded)
 
-            # Gửi dữ liệu file
-            bytes_sent = 0
-            print("\nSending...")
-            while True:
-                data = content.read(4096)  # Đọc từng chunk
-                if not data:
-                    break
-                s.sendall(data)
-                bytes_sent += len(data)
-                print(f"Bytes sent: {bytes_sent}/{file_size}", end="\r")
+        # Đợi server xác nhận
+        if s.recv(BUFFER_SIZE).decode() != "OK":
+            print("Server không phản hồi. Hủy quá trình.")
+            return
 
-            # Gửi tín hiệu hoàn tất
-            s.sendall(b"COMPLETE")
+        # Gửi kích thước file
+        s.sendall(struct.pack("i", file_size))
 
-            # Nhận thông tin hiệu suất từ server
-            upload_time = struct.unpack("f", s.recv(4))[0]
-            print(f"\nUpload completed in {upload_time:.2f} seconds.")
+        # Gửi dữ liệu file
+        with open(file_name, "rb") as f:
+            print("Sending...")
+            while chunk := f.read(BUFFER_SIZE):
+                s.sendall(chunk)
 
-    except socket.error as e:
-        print(f"Socket error occurred: {e}")
+        # Nhận thông tin hiệu suất từ server
+        upload_time = struct.unpack("f", s.recv(4))[0]
+        upload_size = struct.unpack("i", s.recv(4))[0]
+        print(f"Upload completed. Time: {upload_time:.2f}s, Size: {upload_size} bytes")
+
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Lỗi khi upload file: {e}")
+
 
 def list_files():
     """Liệt kê các file trên server."""
@@ -168,7 +163,7 @@ while True:
     if command[:4].upper() == "CONN":
         conn()
     elif command[:4].upper() == "UPLD":
-        upld(command[5:].strip())
+        upld(s, command[5:].strip())
     elif command[:4].upper() == "LIST":
         list_files()
     elif command[:4].upper() == "DWLD":
