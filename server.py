@@ -8,7 +8,8 @@ print("\nWelcome to the FTP server.\n\nTo get started, connect a client.")
 
 # Thiết lập socket
 TCP_IP = "192.168.1.19"  # Chỉ hoạt động cục bộ
-TCP_PORT = 1456       # Cổng TCP
+TCP_PORT = 8080
+       # Cổng TCP
 BUFFER_SIZE = 1024    # Kích thước buffer
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.bind((TCP_IP, TCP_PORT))
@@ -19,48 +20,41 @@ print("\nConnected to by address: {}".format(addr))
 
 
 def upld(conn):
-    """Receive a file from the client."""
+    """Nhận file từ client"""
     try:
-        # Gửi tín hiệu sẵn sàng nhận tên file
-        conn.sendall(b"1")
+        # Gửi tín hiệu sẵn sàng nhận thông tin file
+        conn.sendall(b"OK")  # Thay vì "1", dùng chuỗi byte rõ ràng
 
-        # Nhận tên file
+        # Nhận kích thước tên file và tên file
         file_name_size = struct.unpack("h", conn.recv(2))[0]
         file_name = conn.recv(file_name_size).decode()
 
         # Gửi tín hiệu sẵn sàng nhận kích thước file
-        conn.sendall(b"1")
+        conn.sendall(b"OK")
 
         # Nhận kích thước file
         file_size = struct.unpack("i", conn.recv(4))[0]
-        print(f"Receiving file: {file_name} ({file_size} bytes)")
+        print(f"Receiving file: {file_name} (size: {file_size} bytes)")
 
-        # Nhận dữ liệu file
-        with open(file_name, "wb") as output_file:
+        # Bắt đầu nhận dữ liệu file
+        with open(file_name, "wb") as f:
             bytes_received = 0
-            start_time = time.time()
-
-            print("\nReceiving...")
             while bytes_received < file_size:
-                data = conn.recv(4096)
+                data = conn.recv(BUFFER_SIZE)
                 if not data:
                     break
-                output_file.write(data)
+                f.write(data)
                 bytes_received += len(data)
-                print(f"Bytes received: {bytes_received}/{file_size}", end="\r")
 
-        # Chờ tín hiệu kết thúc
-        end_signal = conn.recv(1024)
-        if end_signal == b"COMPLETE":
-            print("\nFile received completely.")
+        print(f"File {file_name} received successfully.")
 
-        # Gửi thông tin hiệu suất
-        elapsed_time = time.time() - start_time
-        conn.sendall(struct.pack("f", elapsed_time))
+        # Gửi lại thông tin hiệu suất upload
+        conn.sendall(struct.pack("f", time.time()))
+        conn.sendall(struct.pack("i", file_size))
 
     except Exception as e:
-        print(f"Error during file upload: {e}")
-
+        print(f"Error in uploading file: {e}")
+        conn.sendall(b"ERROR")  # Gửi tín hiệu lỗi tới client
 
 def list_files():
     """Xử lý yêu cầu liệt kê file từ client."""
@@ -150,7 +144,7 @@ while True:
     print("\nReceived instruction: {}".format(data))
 
     if data == "UPLD":
-        upld()
+        upld(conn)
     elif data == "LIST":
         list_files()
     elif data == "DWLD":
